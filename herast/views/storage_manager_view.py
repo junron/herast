@@ -53,7 +53,7 @@ class SchemeStorageTreeItem:
 
 	def data(self, column):
 		if column < 0 or column >= len(self._data):
-			return QtCore.QVariant()
+			return None
 
 		return self._data[column]
 
@@ -102,12 +102,12 @@ class StorageManagerModel(QtCore.QAbstractItemModel):
 	# TODO: consider about adding hints via QtCore.Qt.ToolTipRole
 	def data(self, index, role=QtCore.Qt.DisplayRole):
 		if not index.isValid():
-			return QtCore.QVariant()
+			return None
 
 		if role == QtCore.Qt.BackgroundRole:
 			item = self.get_item(index)
 			if item is None or item.is_directory():
-				return QtCore.QVariant()
+				return None
 
 			if item.is_file() and item.is_enabled():
 				return _color_with_opacity(QtCore.Qt.green)
@@ -115,7 +115,7 @@ class StorageManagerModel(QtCore.QAbstractItemModel):
 				return _color_with_opacity(QtCore.Qt.gray, opacity=80)
 
 		if role != QtCore.Qt.DisplayRole:
-			return QtCore.QVariant()
+			return None
 
 		item: SchemeStorageTreeItem = self.get_item(index)
 
@@ -157,7 +157,7 @@ class StorageManagerModel(QtCore.QAbstractItemModel):
 		if orientation == QtCore.Qt.Horizontal and role == QtCore.Qt.DisplayRole:
 			return self.root.data(section)
 
-		return QtCore.QVariant()
+		return None
 
 	def get_storage_path_by_index(self, idx):
 		item = self.get_item(idx)
@@ -455,8 +455,7 @@ class StorageManagerForm(idaapi.PluginForm):
 
 		storage_source_area = QtWidgets.QTextEdit()
 		if idaapi.IDA_SDK_VERSION >= 770:
-			storage_source_area.setTabStopDistance(QtGui.QFontMetricsF(storage_source_area.font()).width(' ') * 4)
-		storage_source_area.setTabStopWidth(4)
+			storage_source_area.setTabStopDistance(QtGui.QFontMetricsF(storage_source_area.font()).horizontalAdvance(' ') * 4)
 		storage_source_area.setReadOnly(True)
 
 		loading_log_area = QtWidgets.QTextEdit()

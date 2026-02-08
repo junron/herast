@@ -30,16 +30,16 @@ class SeqPat(InstructionPat):
 	@InstructionPat.instr_check
 	def check(self, instruction, ctx: MatchContext) -> bool:
 		container = instruction.cblock
-		start_from = container.index(instruction)
-		if start_from + self.length > len(container):
-			return False
+		# start_from = container.index(instruction)
+		# if start_from + self.length > len(container):
+		# 	return False
 
-		if not self.skip_missing and len(container) != self.length + start_from:
-			return False
-
-		for i in range(self.length):
-			if not self.seq[i].check(container[start_from + i], ctx):
-				return False
+		# if not self.skip_missing and len(container) != self.length + start_from:
+		# 	return False
+		for start_from in range(len(container) - self.length + 1):
+			for i in range(self.length):
+				if not self.seq[i].check(container[start_from + i], ctx):
+					return False
 		return True
 
 	@property

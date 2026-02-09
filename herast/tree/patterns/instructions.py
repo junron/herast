@@ -34,6 +34,7 @@ class InstructionPat(BasePat):
 				is_label_ok = self.label_num == item.label_num
 
 			if not is_label_ok:
+				self.why = "Label number mismatch"
 				return False
 			return base_check(self, item, *args, **kwargs)
 
@@ -52,10 +53,12 @@ class BlockPat(InstructionPat):
 	def check(self, instruction, ctx: MatchContext) -> bool:
 		block = instruction.cblock
 		if len(block) != len(self.sequence):
+			self.why = f"Block length mismatch: expected {len(self.sequence)}, got {len(block)}"
 			return False
 
 		for i, pat in enumerate(self.sequence):
 			if not pat.check(block[i], ctx):
+				self.why = f"Failed to match on block item {i}"
 				return False
 		return True
 
@@ -74,7 +77,10 @@ class ExprInsPat(InstructionPat):
 
 	@InstructionPat.instr_check
 	def check(self, instruction, ctx: MatchContext) -> bool:
-		return self.expr.check(instruction.cexpr, ctx)
+		res = self.expr.check(instruction.cexpr, ctx)
+		if not res:
+			self.why = f"Failed to match on expression"
+		return res
 
 	@property
 	def children(self):
@@ -119,15 +125,20 @@ class IfPat(InstructionPat):
 		cif = instruction.cif
 
 		if self.no_else and cif.ielse is not None:
+			self.why = "Expected no else branch"
 			return False
 
 		rv = self.condition.check(cif.expr, ctx)
+		self.why = f"Failed to match on if condition"
 		if not rv: return False
 
 		rv = self.then_branch.check(cif.ithen, ctx)
+		self.why = f"Failed to match on then branch"
 		if not rv: return False
 
-		return self.else_branch.check(cif.ielse, ctx)
+		rv = self.else_branch.check(cif.ielse, ctx)
+		self.why = f"Failed to match on else branch"
+		return rv
 
 	@property
 	def children(self):
@@ -148,11 +159,21 @@ class ForPat(InstructionPat):
 	@InstructionPat.instr_check
 	def check(self, instruction, ctx: MatchContext) -> bool:
 		cfor = instruction.cfor
+		rv = self.init.check(cfor.init, ctx)
+		self.why = f"Failed to match on init"
+		if not rv: return False
 
-		return self.init.check(cfor.init, ctx) and \
-			self.expr.check(cfor.expr, ctx) and \
-			self.step.check(cfor.step, ctx) and \
-			self.body.check(cfor.body, ctx)
+		rv = self.expr.check(cfor.expr, ctx)
+		self.why = f"Failed to match on expr"
+		if not rv: return False
+
+		rv = self.step.check(cfor.step, ctx)
+		self.why = f"Failed to match on step"
+		if not rv: return False
+
+		rv = self.body.check(cfor.body, ctx)
+		self.why = f"Failed to match on body"
+		return rv
 
 	@property
 	def children(self):
@@ -170,8 +191,10 @@ class RetPat(InstructionPat):
 	@InstructionPat.instr_check
 	def check(self, instruction, ctx: MatchContext) -> bool:
 		creturn = instruction.creturn
-
-		return self.expr.check(creturn.expr, ctx)
+		rv = self.expr.check(creturn.expr, ctx)
+		if not rv:
+			self.why = f"Failed to match on return expr"
+		return rv
 
 	@property
 	def children(self):
@@ -191,8 +214,17 @@ class WhilePat(InstructionPat):
 	def check(self, instruction, ctx: MatchContext) -> bool:
 		cwhile = instruction.cwhile
 
-		return self.expr.check(cwhile.expr, ctx) and \
-			self.body.check(cwhile.body, ctx)
+		rv = self.expr.check(cwhile.expr, ctx)
+		if not rv:
+			self.why = f"Failed to match on while expr"
+			return False
+
+		rv = self.body.check(cwhile.body, ctx)
+		if not rv:
+			self.why = f"Failed to match on while body"
+			return False
+
+		return True
 
 	@property
 	def children(self):
@@ -212,8 +244,17 @@ class DoPat(InstructionPat):
 	def check(self, instruction, ctx: MatchContext) -> bool:
 		cdo = instruction.cdo
 
-		return self.body.check(cdo.body, ctx) and \
-			self.expr.check(cdo.expr, ctx) 
+		rv = self.body.check(cdo.body, ctx)
+		if not rv:
+			self.why = f"Failed to match on do body"
+			return False
+
+		rv = self.expr.check(cdo.expr, ctx)
+		if not rv:
+			self.why = f"Failed to match on do expr"
+			return False
+
+		return True
 
 	@property
 	def children(self):
@@ -278,18 +319,21 @@ class SwitchPat(InstructionPat):
 	@InstructionPat.instr_check
 	def check(self, item, ctx: MatchContext) -> bool:
 		if self.expr is not None and not self.expr.check(item.cswitch.expr, ctx):
+			self.why = f"Failed to match on switch expr"
 			return False
 
 		for case in item.cswitch.cases:
 			value = case.value()
 			if value in self.valued_cases:
 				if not self.valued_cases[value].check(case, ctx):
+					self.why = f"Failed to match on switch valued case {value}"
 					return False
 
 			for check_case in self.cases:
 				if check_case.check(case, ctx):
 					break
 			else:
+				self.why = f"No matching case for switch case with value {value}"
 				return False
 
 		return True

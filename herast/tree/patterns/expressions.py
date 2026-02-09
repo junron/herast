@@ -1,4 +1,5 @@
 import sys
+from typing import Union
 import idaapi
 
 from herast.tree.patterns.base_pattern import BasePat
@@ -31,7 +32,7 @@ class CallPat(ExpressionPat):
 	"""Pattern for matching function calls."""
 	op = idaapi.cot_call
 
-	def __init__(self, calling_function, *arguments, ignore_arguments=False, skip_missing=False, **kwargs):
+	def __init__(self, calling_function: Union[str,int, "ObjPat"], *arguments, ignore_arguments=False, skip_missing=False, **kwargs):
 		"""
 		:param calling_function:  what function is called. will try to make ObjPat from it
 		:param arguments:         call arguments
@@ -53,17 +54,20 @@ class CallPat(ExpressionPat):
 	@ExpressionPat.expr_check
 	def check(self, expression, ctx: MatchContext) -> bool:
 		if self.calling_function is not None and not self.calling_function.check(expression.x, ctx):
+			self.why = "Failed to match on calling function"
 			return False
 
 		if self.ignore_arguments:
 			return True
 
 		if len(self.arguments) != len(expression.a) and not self.skip_missing:
+			self.why = f"Argument length mismatch: expected {len(self.arguments)}, got {len(expression.a)}"
 			return False
 
 		min_l = min(len(self.arguments), len(expression.a))
 		for arg_id in range(min_l):
 			if not self.arguments[arg_id].check(expression.a[arg_id], ctx):
+				self.why = f"Failed to match on argument {arg_id}"
 				return False
 
 		return True
@@ -83,7 +87,12 @@ class HelperPat(ExpressionPat):
 
 	@ExpressionPat.expr_check
 	def check(self, expression, ctx: MatchContext) -> bool:
-		return self.helper_name == expression.helper if self.helper_name is not None else True
+		if self.helper_name is None:
+			return True
+		if self.helper_name == expression.helper:
+			return True
+		self.why = "Helper name mismatch"
+		return False
 
 	@property
 	def children(self):
@@ -103,7 +112,10 @@ class NumPat(ExpressionPat):
 		if self.num is None:
 			return True
 
-		return self.num == expr.n._value
+		if self.num != expr.n._value:
+			self.why = f"Number mismatch: expected {self.num}, got {expr.n._value}"
+			return False
+		return True
 
 
 class CastPat(ExpressionPat):
@@ -116,7 +128,10 @@ class CastPat(ExpressionPat):
 
 	@ExpressionPat.expr_check
 	def check(self, item, ctx: MatchContext, *args, **kwargs) -> bool:
-		return self.pat.check(item.x, ctx)
+		rv = self.pat.check(item.x, ctx)
+		if not rv:
+			self.why = "Failed to match on cast inner pattern"
+		return rv
 
 
 class ObjPat(ExpressionPat):
@@ -163,6 +178,7 @@ class ObjPat(ExpressionPat):
 			return True
 
 		if len(self.names) == 0:
+			self.why = "Object address mismatch"
 			return False
 
 		ea_name = idaapi.get_name(expression.obj_ea)
@@ -170,7 +186,11 @@ class ObjPat(ExpressionPat):
 			return True
 
 		demangled_ea_name = idaapi.demangle_name(ea_name, idaapi.MNG_NODEFINIT | idaapi.MNG_NORETTYPE)
-		return demangled_ea_name in self.names
+		if demangled_ea_name in self.names:
+			return True
+
+		self.why = f"Object name mismatch: got {ea_name}, expected one of {self.names}"
+		return False
 
 
 class RefPat(ExpressionPat):
@@ -183,7 +203,10 @@ class RefPat(ExpressionPat):
 
 	@ExpressionPat.expr_check
 	def check(self, expression, ctx: MatchContext) -> bool:
-		return self.referenced_object.check(expression.x, ctx)
+		rv = self.referenced_object.check(expression.x, ctx)
+		if not rv:
+			self.why = "Failed to match on referenced object"
+		return rv
 
 
 class MemrefPat(ExpressionPat):
@@ -197,8 +220,13 @@ class MemrefPat(ExpressionPat):
 
 	@ExpressionPat.expr_check
 	def check(self, expression, ctx: MatchContext) -> bool:
-		return (self.field is None or self.field == expression.m) and \
-			self.referenced_object.check(expression.x, ctx)
+		if self.field is not None and self.field != expression.m:
+			self.why = "Field mismatch"
+			return False
+		rv = self.referenced_object.check(expression.x, ctx)
+		if not rv:
+			self.why = "Failed to match on referenced object"
+		return rv
 
 
 class PtrPat(ExpressionPat):
@@ -210,7 +238,10 @@ class PtrPat(ExpressionPat):
 
 	@ExpressionPat.expr_check
 	def check(self, expression, ctx:MatchContext) -> bool:
-		return self.pointed_object.check(expression.x, ctx)
+		rv = self.pointed_object.check(expression.x, ctx)
+		if not rv:
+			self.why = "Failed to match on pointed object"
+		return rv
 
 
 class MemptrPat(ExpressionPat):
@@ -224,8 +255,13 @@ class MemptrPat(ExpressionPat):
 
 	@ExpressionPat.expr_check
 	def check(self, expression, ctx: MatchContext) -> bool:
-		return (self.field is None or self.field == expression.m) and \
-			self.pointed_object.check(expression.x, ctx)
+		if self.field is not None and self.field != expression.m:
+			self.why = "Field mismatch"
+			return False
+		rv = self.pointed_object.check(expression.x, ctx)
+		if not rv:
+			self.why = "Failed to match on pointed object"
+		return rv
 
 
 class IdxPat(ExpressionPat):
@@ -239,8 +275,15 @@ class IdxPat(ExpressionPat):
 
 	@ExpressionPat.expr_check
 	def check(self, expression, ctx: MatchContext) -> bool:
-		return self.pointed_object.check(expression.x, ctx) and \
-			self.indx.check(expression.y, ctx)
+		rv = self.pointed_object.check(expression.x, ctx)
+		if not rv:
+			self.why = "Failed to match on pointed object"
+			return False
+		rv = self.indx.check(expression.y, ctx)
+		if not rv:
+			self.why = "Failed to match on index"
+			return False
+		return True
 
 
 class TernPat(ExpressionPat):
@@ -255,9 +298,19 @@ class TernPat(ExpressionPat):
 		
 	@ExpressionPat.expr_check
 	def check(self, expression, ctx: MatchContext) -> bool:
-		return self.condition.check(expression.x, ctx) and \
-			self.positive_expression.check(expression.y, ctx) and \
-			self.negative_expression.check(expression.z, ctx)
+		rv = self.condition.check(expression.x, ctx)
+		if not rv:
+			self.why = "Failed to match on ternary condition"
+			return False
+		rv = self.positive_expression.check(expression.y, ctx)
+		if not rv:
+			self.why = "Failed to match on positive expression"
+			return False
+		rv = self.negative_expression.check(expression.z, ctx)
+		if not rv:
+			self.why = "Failed to match on negative expression"
+			return False
+		return True
 
 
 class VarPat(ExpressionPat):
@@ -280,7 +333,10 @@ class AbstractUnaryOpPat(ExpressionPat):
 
 	@ExpressionPat.expr_check
 	def check(self, expression, ctx: MatchContext) -> bool:
-		return self.operand.check(expression.x, ctx)
+		rv = self.operand.check(expression.x, ctx)
+		if not rv:
+			self.why = "Failed to match on operand"
+		return rv
 
 	@property
 	def children(self):
@@ -300,9 +356,15 @@ class AbstractBinaryOpPat(ExpressionPat):
 		first_op_second = self.first_operand.check(expression.x, ctx) and self.second_operand.check(expression.y, ctx)
 		if self.symmetric:
 			second_op_first = self.first_operand.check(expression.y, ctx) and self.second_operand.check(expression.x, ctx)
-			return first_op_second or second_op_first
+			if not (first_op_second or second_op_first):
+				self.why = "Failed to match on operands (symmetric)"
+				return False
+			return True
 		else:
-			return first_op_second
+			if not first_op_second:
+				self.why = "Failed to match on operands"
+				return False
+			return True
 
 	@property
 	def children(self):
@@ -321,8 +383,12 @@ class AsgPat(ExpressionPat):
 	@ExpressionPat.expr_check
 	def check(self, item, ctx: MatchContext) -> bool:
 		if not self.lhs.check(item.x, ctx):
+			self.why = "Failed to match on lhs"
 			return False
-		return self.rhs.check(item.y, ctx)
+		rv = self.rhs.check(item.y, ctx)
+		if not rv:
+			self.why = "Failed to match on rhs"
+		return rv
 
 
 class FnumPat(ExpressionPat):
@@ -336,6 +402,7 @@ class FnumPat(ExpressionPat):
 	@ExpressionPat.expr_check
 	def check(self, item, ctx: MatchContext) -> bool:
 		if self.value is not None and self.value != item.fpc.fnum:
+			self.why = f"Float number mismatch: expected {self.value}, got {item.fpc.fnum}"
 			return False
 		return True
 
@@ -351,6 +418,7 @@ class StrPat(ExpressionPat):
 	@ExpressionPat.expr_check
 	def check(self, item, ctx: MatchContext) -> bool:
 		if self.value is not None and self.value != item.string:
+			self.why = f"String mismatch: expected {self.value}, got {item.string}"
 			return False
 		return True
 

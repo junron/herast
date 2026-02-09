@@ -15,8 +15,8 @@ class AnyPat(BasePat):
 
 	def check(self, item, ctx: MatchContext) -> bool:
 		rv = item is not None or self.may_be_none
-		if self.debug:
-			print(f'Matching AnyPat at 0x{item.ea:X}. Item type: {getattr(item, "opname", None)}. Result: {rv}')
+		if not rv:
+			self.why = "Item is None"
 		return rv
 
 	@property
@@ -37,6 +37,7 @@ class OrPat(BasePat):
 			if p.check(item, ctx):
 				return True
 		
+		self.why = "No alternative patterns matched"
 		return False
 
 	@property
@@ -53,8 +54,9 @@ class AndPat(BasePat):
 
 	@BasePat.base_check
 	def check(self, item, ctx: MatchContext) -> bool:
-		for p in self.pats:
+		for i, p in enumerate(self.pats):
 			if not p.check(item, ctx):
+				self.why = f"Failed to match on child pattern {i}"
 				return False
 
 		return True
@@ -77,4 +79,9 @@ class DeepExprPat(BasePat):
 			if not self.pat.check(item, ctx):
 				continue
 			return True
+		self.why = "No subitem matched"
 		return False
+	
+	@property
+	def children(self):
+		return (self.pat,)

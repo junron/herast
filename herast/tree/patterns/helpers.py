@@ -86,10 +86,10 @@ def CallInsnPat(*args, **kwargs):
 	"""Pseudopattern for quite popular operation of
 	Expression Instruction with Call Expression
 	"""
-	return ExprInsPat(CallPat(*args, **kwargs))
+	return ExprInsPat(CallPat(*args, **kwargs), debug=kwargs.get('debug', False))
 
 def AsgInsnPat(x, y, **kwargs):
 	"""Pseudopattern for quite popular operation of
 	Expression Instruction with Assignment Expression
 	"""
-	return ExprInsPat(AsgPat(x, y, **kwargs))
+	return ExprInsPat(AsgPat(x, y, **kwargs), debug=kwargs.get('debug', False))

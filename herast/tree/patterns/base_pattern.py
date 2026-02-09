@@ -3,6 +3,7 @@ from __future__ import annotations
 import idaapi
 import traceback
 from herast.tree.match_context import MatchContext
+import herast.tree.consts as consts
 
 
 class BasePat:
@@ -34,7 +35,6 @@ class BasePat:
 
 	@classmethod
 	def get_opname(cls):
-		import herast.tree.consts as consts
 		return consts.op2str.get(cls.op, None)
 
 	@staticmethod
@@ -43,29 +43,22 @@ class BasePat:
 		before and after calls are needed.
 		"""
 		def __perform_base_check(self:BasePat, item, ctx:MatchContext):
+			rv = True
 			if item is None:
-				return False
+				rv = False
 
 			if self.check_op is not None and item.op != self.check_op:
-				return False
+				rv = False
 
-			rv = func(self, item, ctx)
+			rv = rv and func(self, item, ctx)
 
 			if rv and self.bind_name is not None:
 				rv = ctx.bind_item(self.bind_name, item)
 
 			if self.debug:
-				if self.debug_msg:
-					print("Debug: value =", rv, ",", self.debug_msg)
-				else:
-					print("Debug: value =", rv)
-
-				if self.debug_trace_depth != 0:
-					print('Debug calltrace, address of item: %#x (%s)' % (item.ea, item.opname))
-					print('---------------------------------')
-					for i in traceback.format_stack()[:self.debug_trace_depth]:
-						print(i)
-					print('---------------------------------')
+				print(f'Matching {type(self).__name__} at 0x{item.ea:X}. Got item type \'{item.opname}\'; ' +
+		  				("expected '" + consts.op2str.get(self.check_op, str(self.check_op)) + "'" if self.check_op is not None else "") + 
+						f'. Result: {rv}')
 			return rv
 		return __perform_base_check
 
